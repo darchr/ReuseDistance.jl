@@ -3,11 +3,17 @@ uuid = "ab64822e-348e-4aa5-8a6d-5df15d5e7b8c"
 authors = ["Mark Hildebrand <mhildebrand@ucdavis.edu> and contributors"]
 version = "0.1.0"
 
+[deps]
+AbstractTrees = "1520ce14-60c1-5f80-bbc7-55ef81b5835c"
+MacroTools = "1914dd2f-81c6-5fcd-8719-6d5c9610ff09"
+ProgressMeter = "92933f4c-e287-5a05-a399-4b506db050ca"
+
 [compat]
 julia = "1"
 
 [extras]
+Random = "9a3f8284-a2c9-5f02-9a11-845980a1fd5c"
 Test = "8dfed614-e22c-5e08-85e1-65c5234f0b40"
 
 [targets]
-test = ["Test"]
+test = ["Random", "Test"]

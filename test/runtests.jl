@@ -1,4 +1,6 @@
 using ReuseDistance
+
+using Random
 using Test
 
 @testset "Testing Node" begin
@@ -121,5 +123,46 @@ using Test
 
     @test rchild(node) === rightleft
     @test lchild(node) === left
+end
+
+@testset "Testing Insert, Search, and Delete" begin
+    treap = ReuseDistance.Treap{Int}()
+    for i in shuffle(1:100)
+        push!(treap, i)
+    end
+
+    @test all(in(treap), 1:100)
+    @test !any(in(treap), 101:200)
+    @test !any(in(treap), -100:0)
+    @test ReuseDistance.isheap(treap)
+    @test ReuseDistance.istree(treap)
+
+    alldeleted = true
+    for i in shuffle(2:2:100)
+        alldeleted &= delete!(treap, i)
+    end
+    @test alldeleted
+    @test length(treap) == 50
+    @test all(in(treap), 1:2:99)
+    @test !any(in(treap), 2:2:100)
+    @test ReuseDistance.isheap(treap)
+    @test ReuseDistance.istree(treap)
+
+    anydeleted = false
+    for i in shuffle(2:2:100)
+        anydeleted |= delete!(treap, i)
+    end
+    @test anydeleted == false
+
+    alldeleted = true
+    for i in shuffle(1:2:99)
+        alldeleted &= delete!(treap, i)
+    end
+    @test alldeleted
+    @test length(treap) == 0
+    @test !any(in(treap), 1:100)
+    @test ReuseDistance.root(treap) === nothing
+    @test ReuseDistance.isheap(treap)
+    @test ReuseDistance.istree(treap)
 end
 
