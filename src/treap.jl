@@ -1,3 +1,45 @@
+#####
+##### PushVector
+#####
+
+mutable struct PushVector{T} <: AbstractVector{T}
+    data::Vector{T}
+    len::Int
+end
+
+PushVector{T}() where {T} = PushVector{T}(T[], 0)
+Base.size(v::PushVector) = (v.len,)
+maxlength(v::PushVector) = length(v.data)
+
+Base.IndexStyle(::PushVector) = Base.IndexLinear()
+Base.@propagate_inbounds function Base.getindex(A::PushVector, i::Int)
+    @boundscheck checkbounds(A, i)
+    return @inbounds(A.data[i])
+end
+
+Base.@propagate_inbounds function Base.setindex!(A::PushVector, v, i::Int)
+    @boundscheck checkbounds(A, i)
+    return @inbounds(A.data[i] = v)
+end
+
+function Base.push!(A::PushVector, v)
+    len = length(A)
+    if len < maxlength(A)
+        @inbounds(A.data[len + 1] = v)
+    else
+        push!(A.data, v)
+    end
+    A.len += 1
+    return A
+end
+
+Base.empty!(A::PushVector) = (A.len = 0)
+
+#####
+##### Node
+#####
+
+@enum Direction::UInt8 Left Right
 mutable struct Node{T}
     key::T
     priority::UInt
@@ -16,17 +58,29 @@ Node(key::T) where {T} = Node{T}(key)
 function Base.show(io::IO, node::Node{T}) where {T}
     hasleft = lchild(node) !== nothing
     hasright = rchild(node) !== nothing
-    print(io, "Node{$T}($(node.key), $(node.priority), $(node.nchildren), $hasleft, $hasright)")
+    print(
+        io,
+        "Node{$T}($(node.key), $(node.priority), $(node.nchildren), $hasleft, $hasright)",
+    )
     return nothing
 end
+
+mutable struct Treap{T}
+    root::Union{Nothing,Node{T}}
+    path::PushVector{Tuple{Node{T},Direction}}
+    nodebuffer::Vector{Node{T}}
+end
+Treap{T}() where {T} = Treap{T}(nothing, PushVector{Tuple{Node{T},Direction}}(), Node{T}[])
 
 lchild(n::Node) = n.left
 rchild(n::Node) = n.right
 hasleft(n::Node) = lchild(n) !== nothing
 hasright(n::Node) = rchild(n) !== nothing
 
-@inline setleft!(n::Node, v = nothing) = (v === nothing) ? (n.left = nothing) : (n.left = v)
-@inline setright!(n::Node, v = nothing) = (v === nothing) ? (n.right = nothing) : (n.right = v)
+@inline setleft!(n::Node, v::Node) = (n.left = v)
+@inline setleft!(n::Node) = (n.left = nothing)
+@inline setright!(n::Node, v::Node) = (n.right = v)
+@inline setright!(n::Node) = (n.right = nothing)
 
 # Compute number of children.
 function update!(node::Node)
@@ -93,6 +147,11 @@ function nchildren(root::Node, key)
     end
 end
 
+#####
+##### insertion
+#####
+
+# Node only method
 function Base.insert!(root::Node, node)
     if node.key < root.key
         _left = lchild(root)
@@ -111,45 +170,168 @@ function Base.insert!(root::Node, node)
     return root
 end
 
+# Using treap auxiliary data structures
+function insertdown!(treap::Treap, node)
+    _current = root(treap)
+    _current === nothing && return nothing
+    current = _current
+    path = treap.path
+    empty!(path)
+    while true
+        if node.key < current.key
+            push!(path, (current, Left))
+            next = lchild(current)
+        else
+            push!(path, (current, Right))
+            next = rchild(current)
+        end
+        next === nothing && return nothing
+        current = next
+    end
+end
+
+function insertup!(treap::Treap, node::Node)
+    path = treap.path
+    i = length(path)
+    @inbounds while i > 0
+        root, direction = path[i]
+        if direction == Left
+            left = setleft!(root, node)
+            left.priority > root.priority ? rotate_right!(root) : break
+        else
+            right = setright!(root, node)
+            right.priority > root.priority ? rotate_left!(root) : break
+        end
+        update!(node)
+        i -= 1
+    end
+
+    # If the path is empty, then we percolated updates all the way to the root and
+    # need to update the "treap's" root.
+    # Otherwise, we need to bookkeep the children numbers on the path we visited.
+    if iszero(i)
+        treap.root = node
+    else
+        @inbounds for j in Base.OneTo(i)
+            root, _ = path[j]
+            root.nchildren += 1
+        end
+    end
+    return treap
+end
+
+#####
+##### deletion
+#####
+
+macro _split(sym, f)
+    return esc(quote
+        if $sym !== nothing
+            _tmp = delete!($sym, key)
+            _tmp === nothing ? $f(root) : $f(root, _tmp)
+        end
+    end)
+end
+
 function Base.delete!(root::Node{T}, key::T) where {T}
     left = lchild(root)
     right = rchild(root)
     # Branch left if possible
     if (key < root.key)
-        if left !== nothing
-            _tmp = delete!(left, key)
-            _tmp === nothing ? setleft!(root) : setleft!(root, _tmp)
-        end
-    # Branch right if possible
+        @_split left setleft!
+        # Branch right if possible
     elseif (key > root.key)
-        if right !== nothing
-            _tmp = delete!(right, key)
-            _tmp === nothing ? setright!(root) : setright!(root, _tmp)
-        end
-    # Key is at node, try removal of left or right.
+        @_split right setright!
+        # Key is at node, try removal of left or right.
     elseif left === nothing
         root = right
     elseif right === nothing
         root = left
-    # Node has two children, rotate and move down.
+        # Node has two children, rotate and move down.
     elseif left.priority < right.priority
+        old = root
         root = rotate_left!(root)
-        newleft = lchild(root)
-        if newleft !== nothing
-            _tmp = delete!(newleft, key)
-            _tmp === nothing ? setleft!(root) : setleft!(root, _tmp)
-        end
+        _tmp = delete!(old, key)
+        _tmp === nothing ? setleft!(root) : setleft!(root, _tmp)
     else
+        old = root
         root = rotate_right!(root)
-        newright = rchild(root)
-        if newright !== nothing
-            _tmp = delete!(newright, key)
-            _tmp === nothing ? setright!(root) : setright!(root, _tmp)
-        end
+        _tmp = delete!(old, key)
+        _tmp === nothing ? setright!(root) : setright!(root, _tmp)
     end
     root === nothing || update!(root)
     return root
 end
+
+function deletefind!(treap::Treap, current::Node, key)
+    path = treap.path
+    empty!(path)
+    while true
+        current.key == key && return current
+        if key < current.key
+            push!(path, (current, Left))
+            next = lchild(current)
+        else
+            push!(path, (current, Right))
+            next = rchild(current)
+        end
+        next === nothing && return current
+        current = next
+    end
+end
+
+function deletedown!(treap::Treap, root, node)
+    updateroot = (node == root)
+    path = treap.path
+    if isempty(path)
+        treap.root = nothing
+        return nothing
+    end
+
+    # find a replacement node
+    while true
+        parent, direction = @inbounds(path[end])
+        left = lchild(node)
+        right = rchild(node)
+
+        # Easy path, both children are nothing, we just need to
+        @show (parent, direction, left, right, node)
+        if left === nothing
+            if right === nothing
+                direction === Left ? setleft!(parent) : setright!(parent)
+                break
+            else
+                direction === Left ? setleft!(parent, right) : setright!(parent, right)
+                setright!(node)
+            end
+        elseif right === nothing
+            direction === Left ? setleft!(parent, left) : setright!(parent, left)
+            setleft!(node)
+        elseif left.priority < right.priority
+            # Right will become the successor
+            rotate_left!(node)
+            direction === Left ? setleft!(parent, right) : setright!(parent, right)
+            push!(path, (right, Left))
+        else
+            rotate_right!(node)
+            direction === Left ? setleft!(parent, left) : setright!(parent, left)
+            push!(path, (left, Right))
+        end
+    end
+
+    for (n, _) in path
+        n.nchildren -= 1
+    end
+    if updateroot
+        n = path[begin]
+        treap.root = n
+    end
+    return nothing
+end
+
+#####
+##### misc
+#####
 
 function traverse(f::F, root::Node) where {F}
     left = lchild(root)
@@ -174,14 +356,9 @@ end
 ##### Treap
 #####
 
-mutable struct Treap{T}
-    root::Union{Nothing,Node{T}}
-end
-
-Treap{T}() where {T} = Treap{T}(nothing)
 function Base.length(treap::Treap)
     base = root(treap)
-    return base === nothing ? -1 : base.nchildren
+    return base === nothing ? 0 : base.nchildren
 end
 root(treap::Treap) = treap.root
 
@@ -207,7 +384,9 @@ function unsafe_push!(treap::Treap{T}, key0) where {T}
         return treap
     end
 
-    treap.root = insert!(base, node)
+    insertdown!(treap, node)
+    insertup!(treap, node)
+    # treap.root = insert!(base, node)
     return treap
 end
 
@@ -222,6 +401,8 @@ function Base.delete!(treap::Treap{T}, key0) where {T}
     in(key, treap) || return false
     base = root(treap)
     base === nothing && return false
+    # node = deletefind!(treap, base, key)
+    # deletedown!(treap, base, node)
     treap.root = delete!(base, key)
     return true
 end

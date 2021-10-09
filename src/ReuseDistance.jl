@@ -7,6 +7,7 @@ import AbstractTrees
 import ProgressMeter
 
 # implementation
+include("reference.jl")
 include("treap.jl")
 
 function reuse(itr)
@@ -14,7 +15,7 @@ function reuse(itr)
     lastuse = Dict{eltype(itr),Int}()
     histogram = Dict{Int,Int}()
 
-    for (t, i) in enumerate(itr)
+    ProgressMeter.@showprogress 1 for (t, i) in enumerate(itr)
         lasttime = get(lastuse, i, t)
         key = (lasttime, i)
         d = -1
@@ -29,49 +30,51 @@ function reuse(itr)
     return histogram
 end
 
-#####
-##### Naive Implementation
-#####
-
-function reuse_naive(v::AbstractVector{T}) where {T}
-    lastuse = Dict{T,Int}()
-    counts = Set{T}()
-    histogram = Dict{Int,Int}()
-
-    ProgressMeter.@showprogress 1 for (t, i) in enumerate(v)
-        lasttime = get(lastuse, i, t)
-        d = -1
-        if lasttime != t
-            empty!(counts)
-            for u in view(v, (lasttime + 1):(t - 1))
-                push!(counts, u)
-            end
-            d = length(counts)
-        end
-        histogram[d] = 1 + get(histogram, d, 0)
-        lastuse[i] = t
-    end
-    return histogram
+function moveend!(d)
+    m = maximum(keys(d))
+    d[m+1] = d[-1]
+    delete!(d, -1)
+    return nothing
 end
 
-function gramsequal(a, b)
-    passed = true
-    for (k, v) in a
-        if haskey(b, k)
-            passed &= (b[k] == v)
-        else
-            passed = false
-        end
-    end
+"""
+    transform(dict)
+Transform a histogram `dict` into a vector representation.
+"""
+function transform(dict)
+    ks = sort(collect(keys(dict)))
 
-    for (k, v) in b
-        if haskey(a, k)
-            passed &= (a[k] == v)
-        else
-            passed = false
+    array = Vector{valtype(dict)}()
+    sizehint!(array, last(ks) - first(ks))
+
+    lastkey = first(ks) - 1
+    for k in ks
+        # Append an appropriate number of zeros to the last
+        for _ in 1:(k - lastkey - 1)
+            push!(array, zero(valtype(dict)))
         end
+        push!(array, dict[k])
+        lastkey = k
     end
-    return passed
+    return array
+end
+
+"""
+    cdf(x) -> Vector
+Return the `cdf` of `x`.
+"""
+function cdf(x)
+    v = x ./ sum(x)
+    for i in 2:length(v)
+        v[i] = v[i] + v[i-1]
+    end
+    return v
+end
+
+function cdf(x::Dict)
+    d = copy(x)
+    moveend!(d)
+    return cdf(transform(d))
 end
 
 end
