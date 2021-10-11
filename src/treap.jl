@@ -82,6 +82,15 @@ hasright(n::Node) = rchild(n) !== nothing
 @inline setright!(n::Node, v::Node) = (n.right = v)
 @inline setright!(n::Node) = (n.right = nothing)
 
+function reassign!(node::Node{T}, key::T) where {T}
+    node.key = key
+    node.priority = rand(UInt)
+    node.nchildren = 1
+    node.left = nothing
+    node.right = nothing
+    return nothing
+end
+
 # Compute number of children.
 function update!(node::Node)
     subtree = 1
@@ -275,38 +284,72 @@ function deletefind!(treap::Treap, current::Node, key)
             push!(path, (current, Right))
             next = rchild(current)
         end
-        next === nothing && return current
+        next === nothing && return nothing
         current = next
     end
 end
 
+function handleroot!(treap::Treap, node)
+    path = treap.path
+    left = lchild(node)
+    right = rchild(node)
+
+    if left === nothing
+        if right === nothing
+            # Delete node - return true to indicate that upper level function
+            # should simply return.
+            treap.root = nothing
+            push!(treap.nodebuffer, node)
+            return true
+        else
+            newroot = rotate_left!(node)
+            push!(path, (newroot, Left))
+            treap.root = newroot
+        end
+    elseif right === nothing
+        newroot = rotate_right!(node)
+        push!(path, (newroot, Right))
+        treap.root = newroot
+    elseif left.priority < right.priority
+        newroot = rotate_left!(node)
+        push!(path, (right, Left))
+        treap.root = newroot
+    else
+        newroot = rotate_right!(node)
+        push!(path, (left, Right))
+        treap.root = newroot
+    end
+    return false
+end
+
 function deletedown!(treap::Treap, root, node)
     updateroot = (node == root)
-    path = treap.path
-    if isempty(path)
-        treap.root = nothing
+    if updateroot && handleroot!(treap, node)
         return nothing
     end
 
-    # find a replacement node
+    # Shift the node down until it falls off the bottom of the tree.
+    path = treap.path
     while true
         parent, direction = @inbounds(path[end])
         left = lchild(node)
         right = rchild(node)
 
         # Easy path, both children are nothing, we just need to
-        @show (parent, direction, left, right, node)
         if left === nothing
             if right === nothing
                 direction === Left ? setleft!(parent) : setright!(parent)
+                push!(treap.nodebuffer, node)
                 break
             else
+                rotate_left!(node)
                 direction === Left ? setleft!(parent, right) : setright!(parent, right)
-                setright!(node)
+                push!(path, (right, Left))
             end
         elseif right === nothing
+            rotate_right!(node)
             direction === Left ? setleft!(parent, left) : setright!(parent, left)
-            setleft!(node)
+            push!(path, (left, Right))
         elseif left.priority < right.priority
             # Right will become the successor
             rotate_left!(node)
@@ -321,10 +364,6 @@ function deletedown!(treap::Treap, root, node)
 
     for (n, _) in path
         n.nchildren -= 1
-    end
-    if updateroot
-        n = path[begin]
-        treap.root = n
     end
     return nothing
 end
@@ -375,8 +414,14 @@ function Base.in(key0, treap::Treap{T}) where {T}
 end
 
 function unsafe_push!(treap::Treap{T}, key0) where {T}
+    buffer = treap.nodebuffer
     key = convert(T, key0)
-    node = Node(key)
+    if !isempty(buffer)
+        node = pop!(buffer)
+        reassign!(node, key)
+    else
+        node = Node(key)
+    end
 
     base = root(treap)
     if base === nothing
@@ -386,7 +431,6 @@ function unsafe_push!(treap::Treap{T}, key0) where {T}
 
     insertdown!(treap, node)
     insertup!(treap, node)
-    # treap.root = insert!(base, node)
     return treap
 end
 
@@ -398,12 +442,18 @@ end
 
 function Base.delete!(treap::Treap{T}, key0) where {T}
     key = convert(T, key0)
-    in(key, treap) || return false
+    # If the root doesn't exist, then obviously we can't delete the key.
     base = root(treap)
     base === nothing && return false
-    # node = deletefind!(treap, base, key)
-    # deletedown!(treap, base, node)
-    treap.root = delete!(base, key)
+
+    # If `deletefind!` doesn't find the node - then we've done a bit of extra work by
+    # keeping track of our downward path.
+    #
+    # But, if we DO find the node, then we can save redoing the work we just did, which
+    # is potentially much more useful.
+    node = deletefind!(treap, base, key)
+    node === nothing && return false
+    deletedown!(treap, base, node)
     return true
 end
 
@@ -463,5 +513,5 @@ function AbstractTrees.children(node::Node)
     end
 end
 
-AbstractTrees.printnode(io::IO, node::Node) = print(io, node.key)
+AbstractTrees.printnode(io::IO, node::Node) = print(io, "($(node.key), $(node.priority))")
 
