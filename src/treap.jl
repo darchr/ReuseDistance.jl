@@ -40,6 +40,7 @@ Base.empty!(A::PushVector) = (A.len = 0)
 #####
 
 @enum Direction::UInt8 Left Right
+const SEED = UInt(0x167ef00a9)
 mutable struct Node{T}
     key::T
     priority::UInt
@@ -48,7 +49,7 @@ mutable struct Node{T}
     right::Union{Nothing,Node{T}}
 
     function Node{T}(key::T) where {T}
-        priority = rand(UInt)
+        priority = hash(key, SEED)
         return new{T}(key, priority, 1, nothing, nothing)
     end
 end
@@ -84,7 +85,7 @@ hasright(n::Node) = rchild(n) !== nothing
 
 function reassign!(node::Node{T}, key::T) where {T}
     node.key = key
-    node.priority = rand(UInt)
+    node.priority = hash(key, SEED)
     node.nchildren = 1
     node.left = nothing
     node.right = nothing

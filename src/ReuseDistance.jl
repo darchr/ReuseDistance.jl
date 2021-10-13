@@ -27,54 +27,56 @@ function reuse(itr)
         push!(treap, (t, i))
         lastuse[i] = t
     end
+    @assert istree(treap)
+    @assert isheap(treap)
     return histogram
 end
 
-function moveend!(d)
-    m = maximum(keys(d))
-    d[m+1] = d[-1]
-    delete!(d, -1)
-    return nothing
-end
-
-"""
-    transform(dict)
-Transform a histogram `dict` into a vector representation.
-"""
-function transform(dict)
-    ks = sort(collect(keys(dict)))
-
-    array = Vector{valtype(dict)}()
-    sizehint!(array, last(ks) - first(ks))
-
-    lastkey = first(ks) - 1
-    for k in ks
-        # Append an appropriate number of zeros to the last
-        for _ in 1:(k - lastkey - 1)
-            push!(array, zero(valtype(dict)))
-        end
-        push!(array, dict[k])
-        lastkey = k
-    end
-    return array
-end
-
-"""
-    cdf(x) -> Vector
-Return the `cdf` of `x`.
-"""
-function cdf(x)
-    v = x ./ sum(x)
-    for i in 2:length(v)
-        v[i] = v[i] + v[i-1]
-    end
-    return v
-end
-
-function cdf(x::Dict)
-    d = copy(x)
-    moveend!(d)
-    return cdf(transform(d))
-end
+# function moveend!(d)
+#     m = maximum(keys(d))
+#     d[m+1] = d[-1]
+#     delete!(d, -1)
+#     return nothing
+# end
+#
+# """
+#     transform(dict)
+# Transform a histogram `dict` into a vector representation.
+# """
+# function transform(dict)
+#     ks = sort(collect(keys(dict)))
+#
+#     array = Vector{valtype(dict)}()
+#     sizehint!(array, last(ks) - first(ks))
+#
+#     lastkey = first(ks) - 1
+#     for k in ks
+#         # Append an appropriate number of zeros to the last
+#         for _ in 1:(k - lastkey - 1)
+#             push!(array, zero(valtype(dict)))
+#         end
+#         push!(array, dict[k])
+#         lastkey = k
+#     end
+#     return array
+# end
+#
+# """
+#     cdf(x) -> Vector
+# Return the `cdf` of `x`.
+# """
+# function cdf(x)
+#     v = x ./ sum(x)
+#     for i in 2:length(v)
+#         v[i] = v[i] + v[i-1]
+#     end
+#     return v
+# end
+#
+# function cdf(x::Dict)
+#     d = copy(x)
+#     moveend!(d)
+#     return cdf(transform(d))
+# end
 
 end
