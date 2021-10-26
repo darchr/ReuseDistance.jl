@@ -245,12 +245,13 @@
     @testset "Performing Stress Test" begin
         groundtruth = Set{Int}()
         tree = ReuseDistance.RedBlackTree{Int}()
-        domain = 1:100_000
+        domain = 1:10000
         numswaps = 1000
-        increment = 0.04
+        increment = 0.02
 
         swapcount = 0
         add = true
+        meter = ProgressMeter.Progress(numswaps, 1)
         while swapcount <= numswaps
             swapchance = 0.0
             while rand() > swapchance
@@ -261,26 +262,12 @@
                         while length(groundtruth) < length(domain) && in(i, groundtruth)
                             i = rand(domain)
                         end
-
-                        println("Adding: $i")
                         push!(tree, i)
                         push!(groundtruth, i)
                     elseif !isempty(groundtruth)
                         i = rand(groundtruth)
-                        println("Deleting: $i")
-                        ReuseDistance.AbstractTrees.print_tree(tree)
                         delete!(tree, i)
                         delete!(groundtruth, i)
-                    end
-
-                    ReuseDistance.validate(tree) || error()
-
-                    for i in domain
-                        if in(i, groundtruth)
-                            in(i, tree) || error("Didn't find node: $i")
-                        else
-                            !in(i, tree) || error("Found node: $i")
-                        end
                     end
                 end
                 swapchance += increment
@@ -294,11 +281,12 @@
                     passed &= !in(i, tree)
                 end
             end
+
             @test passed
             @test ReuseDistance.validate(tree)
-            @show length(tree)
             swapcount += 1
             add = !add
+            ProgressMeter.next!(meter)
         end
     end
 end

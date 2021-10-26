@@ -137,6 +137,8 @@ end
 setleft!(tree::RedBlackTree, index, child) = setchild!(tree, index, Left, child)
 setright!(tree::RedBlackTree, index, child) = setchild!(tree, index, Right, child)
 
+isred(tree::RedBlackTree, n::Integer) = !iszero(n) && (getcolor(tree, n) == Red)
+
 #####
 ##### Convenience Accessors
 #####
@@ -334,7 +336,7 @@ function swap_successor!(tree::RedBlackTree, n::Integer, m::Integer)
     # Need to be more careful with right children and parents for the case where
     # `m` is the right child of `n`
     if n == getparent(tree, m)
-        println("    Successor is child")
+        ##println("    Successor is child")
         p = getparent(tree, n)
         setparent!(tree, m, p)
         iszero(p) || setchild!(tree, p, child_direction(tree, p, n), m)
@@ -346,7 +348,7 @@ function swap_successor!(tree::RedBlackTree, n::Integer, m::Integer)
         setright!(tree, m, n)
     else
         # Swap parents
-        println("    Successor is not child")
+        #println("    Successor is not child")
         pₙ = getparent(tree, n)
         pₘ = getparent(tree, m)
         setparent!(tree, m, pₙ)
@@ -399,20 +401,14 @@ function _delete!(tree::RedBlackTree, n::Integer)
     # Else if `n` is black, is it has a child, it must be a red child.
     # Replace `node` with its child and color the child `Black`.
     p = getparent(tree, n)
-    #direction = child_direction(tree, p, n)
     if color == Red
-        println("Case 1")
-        @assert iszero(left) && iszero(right)
         setchild!(tree, p, child_direction(tree, p, n), 0)
         return nothing
     elseif iszero(left) && iszero(right)
-        println("Case 2")
         _delete_complex!(tree, n)
         return nothing
     else
-        println("Case 3")
         m = iszero(left) ? right : left
-        @assert getcolor(tree, m) == Red
         setcolor!(tree, m, Black)
         setparent!(tree, m, p)
         if iszero(p)
@@ -427,7 +423,6 @@ end
 function _delete_complex!(tree::RedBlackTree, n::Integer)
     p = getparent(tree, n)
     direction = child_direction(tree, p, n)
-    AbstractTrees.print_tree(tree)
     setchild!(tree, p, direction, 0)
 
     local s, d, c
@@ -438,19 +433,11 @@ function _delete_complex!(tree::RedBlackTree, n::Integer)
         s = getchild(tree, p, reverse(direction))
         d = getchild(tree, s, reverse(direction))
         c = getchild(tree, s, direction)
-        if getcolor(tree, s) == Red
-            # `s` is `Red` implies `p, c, d` are all `Black`.
-            @goto case_d3
-        end
-        if !iszero(d) && getcolor(tree, d) == Red
-            @goto case_d6
-        end
-        if !iszero(c) && getcolor(tree, c) == Red
-            @goto case_d5
-        end
-        if getcolor(tree, p) == Red
-            @goto case_d4
-        end
+
+        getcolor(tree, s) == Red && @goto case_d3
+        isred(tree, d) && @goto case_d6
+        isred(tree, c) && @goto case_d5
+        getcolor(tree, p) == Red && @goto case_d4
 
         # All of p, c, s, d are Black
         setcolor!(tree, s, Red)
@@ -461,28 +448,21 @@ function _delete_complex!(tree::RedBlackTree, n::Integer)
     end
 
     @label case_d3
-    println("    D3")
     rotateroot!(tree, p, direction)
     setcolor!(tree, p, Red)
     setcolor!(tree, s, Black)
     s = c
     d = getchild(tree, s, reverse(direction))
-    if !iszero(d) && getcolor(tree, d) == Red
-        @goto case_d6
-    end
+    isred(tree, d) && @goto case_d6
     c = getchild(tree, s, direction)
-    if !iszero(c) && getcolor(tree, c) == Red
-        @goto case_d5
-    end
+    isred(tree, c) && @goto case_d5
 
     @label case_d4
-    println("    D4")
     setcolor!(tree, s, Red)
     setcolor!(tree, p, Black)
     return nothing
 
     @label case_d5
-    println("    D5")
     rotateroot!(tree, s, reverse(direction))
     setcolor!(tree, s, Red)
     setcolor!(tree, c, Black)
@@ -490,7 +470,6 @@ function _delete_complex!(tree::RedBlackTree, n::Integer)
     s = c
 
     @label case_d6
-    println("    D6")
     rotateroot!(tree, p, direction)
     setcolor!(tree, s, getcolor(tree, p))
     setcolor!(tree, p, Black)
@@ -609,7 +588,3 @@ end
 AbstractTrees.printnode(io::IO, ti::TreeIndex) =
     print(io, "$(ti.tree[ti.index]) ($(ti.index) - $(getcolor(ti.tree, ti.index)))")
 
-# [43493, 79338, 16412, 63970, 64636, 42916, 83792, 47292, 30963]#, 46520]
-#
-# adds = [60025, 61995, 80414, 78411]
-# deletes = [61995, 60024, 78411]
