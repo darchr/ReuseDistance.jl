@@ -40,6 +40,8 @@ Base.empty!(A::PushVector) = (A.len = 0)
 #####
 
 @enum Direction::UInt8 Left Right
+Base.reverse(x::Direction) = Base.bitcast(Direction, xor(UInt8(x), one(UInt8)))
+
 const SEED = UInt(0x167ef00a9)
 mutable struct Node{T}
     key::T

@@ -7,6 +7,7 @@ version = "0.1.0"
 AbstractTrees = "1520ce14-60c1-5f80-bbc7-55ef81b5835c"
 MacroTools = "1914dd2f-81c6-5fcd-8719-6d5c9610ff09"
 ProgressMeter = "92933f4c-e287-5a05-a399-4b506db050ca"
+Setfield = "efcf1570-3423-57d1-acb7-fd33fddbac46"
 
 [compat]
 julia = "1"

@@ -5,10 +5,12 @@ export Node, Treap, search
 # deps
 import AbstractTrees
 import ProgressMeter
+import Setfield: @set
 
 # implementation
 include("reference.jl")
 include("treap.jl")
+include("redblack.jl")
 
 function reuse(itr)
     treap = Treap{Tuple{Int,eltype(itr)}}()
