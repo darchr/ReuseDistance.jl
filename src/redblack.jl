@@ -20,6 +20,7 @@ struct ProtoNode{T}
     parent::UInt
     left::UInt
     right::UInt
+    nchildren::UInt
     key::T
 end
 
@@ -83,16 +84,16 @@ return!(tree::RedBlackTree, index::Integer) = push!(tree.free, index)
 
 function Base.setindex!(tree::RedBlackTree{T}, k0, index::Integer) where {T}
     k = convert(T, k0)
-    ptr = Ptr{T}(pointer(tree, index)) + 3 * sizeof(UInt)
+    ptr = Ptr{T}(pointer(tree, index)) + 4 * sizeof(UInt)
     return unsafe_store!(ptr, k)
 end
 
 @inline Base.pointer(tree::RedBlackTree, i::Integer) = pointer(tree.nodes, i)
 
 """
-    getparent(tree::RedBlackTree, index::Integer) -> Integer
+    getparent(tree::RedBlackTree, n) -> Integer
 
-Return the parent index for the the node at `index` in `tree`.
+Return the parent index for the the node at `n` in `tree`.
 """
 function getparent(tree::RedBlackTree{T}, index::Integer) where {T}
     ptr = pointer(tree, index)
@@ -100,10 +101,15 @@ function getparent(tree::RedBlackTree{T}, index::Integer) where {T}
     return unmasked & ~msb(unmasked)
 end
 
-function setparent!(tree::RedBlackTree, index::Integer, v)
-    ptr = Ptr{UInt}(pointer(tree, index))
+"""
+    setparent!(tree::RedBlackTree, n, p)
+
+Assign `p` as `n`'s parent.
+"""
+function setparent!(tree::RedBlackTree, n::Integer, p::Integer)
+    ptr = Ptr{UInt}(pointer(tree, n))
     old = unsafe_load(ptr)
-    new = (old & msb(old)) | (v & ~msb(old))
+    new = (old & msb(old)) | (p & ~msb(old))
     return unsafe_store!(ptr, new)
 end
 
@@ -139,6 +145,28 @@ setright!(tree::RedBlackTree, index, child) = setchild!(tree, index, Right, chil
 
 isred(tree::RedBlackTree, n::Integer) = !iszero(n) && (getcolor(tree, n) == Red)
 
+# Sub-tree size tracking
+function subtreesize(tree::RedBlackTree, n::Integer)
+    ptr = pointer(tree, n) + 3 * sizeof(UInt)
+    return unsafe_load(Ptr{UInt}(ptr))
+end
+
+function setsubtree!(tree::RedBlackTree, n::Integer, v)
+    ptr = pointer(tree, n) + 3 * sizeof(UInt)
+    unsafe_store!(Ptr{UInt}(ptr), convert(UInt, v))
+end
+
+function setsubtree!(tree::RedBlackTree, n::Integer)
+    nchildren = 1
+    left = leftchild(tree, n)
+    iszero(left) || (nchildren += subtreesize(tree, left))
+
+    right = rightchild(tree, n)
+    iszero(right) || (nchildren += subtreesize(tree, right))
+    setsubtree!(tree, n, nchildren)
+    return nothing
+end
+
 #####
 ##### Convenience Accessors
 #####
@@ -150,37 +178,6 @@ end
 child_direction(tree::RedBlackTree, n::Integer) =
     child_direction(tree, getparent(tree, n), n)
 
-function safeparent(tree::RedBlackTree, n::Integer)
-    return iszero(n) ? n : getparent(tree, n)
-end
-
-function safegrandparent(tree::RedBlackTree, n::Integer)
-    return safeparent(tree, safeparent(tree, n))
-end
-
-function sibling(tree::RedBlackTree, n::Integer)
-    p = getparent(tree, n)
-    return getchild(tree, p, reverse(child_direction(tree, p, n)))
-end
-
-function getuncle(tree::RedBlackTree, n::Integer)
-    return sibling(tree, getparent(tree, n))
-end
-
-function closenephew(tree::RedBlackTree, n::Integer)
-    p = getparent(tree, n)
-    dir = child_direction(tree, p, n)
-    s = getchild(tree, p, reverse(dir))
-    return getchild(tree, s, dir)
-end
-
-function distantnephew(tree::RedBlackTree, n::Integer)
-    p = getparent(tree, n)
-    dir = child_direction(tree, p, n)
-    s = getchild(tree, p, reverse(dir))
-    return getchild(tree, s, reverse(dir))
-end
-
 function rotateroot!(tree::RedBlackTree, p::Integer, dir::Direction)
     g = getparent(tree, p)
     s = getchild(tree, p, reverse(dir))
@@ -191,11 +188,11 @@ function rotateroot!(tree::RedBlackTree, p::Integer, dir::Direction)
     setchild!(tree, s, dir, p)
     setparent!(tree, p, s)
     setparent!(tree, s, g)
-    if iszero(g)
-        tree.root = s
-    else
-        setchild!(tree, g, child_direction(tree, g, p), s)
-    end
+    iszero(g) ? (tree.root = s) : setchild!(tree, g, child_direction(tree, g, p), s)
+
+    # update subtree sizes
+    setsubtree!(tree, p )
+    setsubtree!(tree, s)
     return s
 end
 
@@ -233,6 +230,13 @@ function Base.push!(tree::RedBlackTree{T}, k::T) where {T}
     p, status = search(tree, k)
     status == Found && return tree
 
+    # Add 1 to all subtree sizes to the nodes seen along the way.
+    g = p
+    while !iszero(g)
+        setsubtree!(tree, g, subtreesize(tree, g) + 1)
+        g = getparent(tree, g)
+    end
+
     # Create a new node and finish inserting
     n = tree[]
     tree[n] = k
@@ -250,6 +254,7 @@ function _insert!(tree::RedBlackTree, n::Integer, p::Integer, direction::Directi
     setparent!(tree, n, p)
     setleft!(tree, n, 0)
     setright!(tree, n, 0)
+    setsubtree!(tree, n, 1)
 
     # There is no parent.
     # `n` is the new root of the tree and insertion is complete.
@@ -365,6 +370,8 @@ function swap_successor!(tree::RedBlackTree, n::Integer, m::Integer)
         setparent!(tree, rₙ, m)
     end
     n == tree.root && (tree.root = m)
+    setsubtree!(tree, n)
+    setsubtree!(tree, m)
     return nothing
 end
 
@@ -401,6 +408,14 @@ function _delete!(tree::RedBlackTree, n::Integer)
     # Else if `n` is black, is it has a child, it must be a red child.
     # Replace `node` with its child and color the child `Black`.
     p = getparent(tree, n)
+
+    # Decrement subtree size from `n` to the root.
+    g = p
+    while !iszero(g)
+        setsubtree!(tree, g, subtreesize(tree, g) - 1)
+        g = getparent(tree, g)
+    end
+
     if color == Red
         setchild!(tree, p, child_direction(tree, p, n), 0)
         return nothing
@@ -486,6 +501,31 @@ function Base.delete!(tree::RedBlackTree{T}, k0) where {T}
         return true
     end
     return false
+end
+
+#####
+##### Count Children
+#####
+
+function nchildren(tree::RedBlackTree{T}, k0) where {T}
+    k = convert(T, k0)
+    count = 0
+    n = tree.root
+    while !iszero(n)
+        v = tree[n]
+        if v == k
+            right = rightchild(tree, n)
+            iszero(right) || (count += subtreesize(tree, right))
+            return count
+        elseif k < v
+            count += 1
+            right = rightchild(tree, n)
+            iszero(right) || (count += subtreesize(tree, right))
+            n = leftchild(tree, n)
+        else
+            n = rightchild(tree, n)
+        end
+    end
 end
 
 #####
@@ -585,6 +625,9 @@ function AbstractTrees.children(ti::TreeIndex)
     return [TreeIndex(ti.tree, i) for i in (left, right) if !iszero(i)]
 end
 
-AbstractTrees.printnode(io::IO, ti::TreeIndex) =
-    print(io, "$(ti.tree[ti.index]) ($(ti.index) - $(getcolor(ti.tree, ti.index)))")
+function AbstractTrees.printnode(io::IO, ti::TreeIndex)
+    metadata = join((ti.index, getcolor(ti.tree, ti.index), subtreesize(ti.tree, ti.index)), " - ")
+    key = ti.tree[ti.index]
+    print(io, "$key ($metadata)")
+end
 

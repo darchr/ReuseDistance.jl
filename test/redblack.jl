@@ -49,8 +49,7 @@
         # Test misc accessors
         @test ReuseDistance.child_direction(tree, n, 10) == ReuseDistance.Left
         @test ReuseDistance.child_direction(tree, n, 33) == ReuseDistance.Right
-        @test ReuseDistance.safeparent(tree, n) == typemax(Int64)
-        @test ReuseDistance.safeparent(tree, 0) == 0
+        @test ReuseDistance.getparent(tree, n) == typemax(Int64)
         m = tree[]
         @test m == 2
         ReuseDistance.setparent!(tree, n, 0)
@@ -61,8 +60,7 @@
         ReuseDistance.setleft!(tree, n, 0)
         ReuseDistance.setright!(tree, n, m)
         @test ReuseDistance.child_direction(tree, m) == ReuseDistance.Right
-        @test ReuseDistance.safeparent(tree, m) == n
-        @test ReuseDistance.safegrandparent(tree, m) == 0
+        @test ReuseDistance.getparent(tree, m) == n
     end
 
     @testset "Testing Tree Operations" begin
@@ -111,23 +109,6 @@
             return tree, (; a, b, c, d, e, f)
         end
 
-        tree, nodes = setup_tree()
-        @test ReuseDistance.sibling(tree, nodes.b) == nodes.c
-        @test ReuseDistance.sibling(tree, nodes.c) == nodes.b
-        @test ReuseDistance.sibling(tree, nodes.f) == 0
-        @test ReuseDistance.sibling(tree, nodes.d) == nodes.e
-        @test ReuseDistance.sibling(tree, nodes.e) == nodes.d
-
-        @test ReuseDistance.getuncle(tree, nodes.d) == nodes.c
-        @test ReuseDistance.getuncle(tree, nodes.e) == nodes.c
-        @test ReuseDistance.getuncle(tree, nodes.f) == nodes.b
-
-        @test ReuseDistance.closenephew(tree, nodes.c) == nodes.e
-        @test ReuseDistance.distantnephew(tree, nodes.c) == nodes.d
-
-        @test ReuseDistance.closenephew(tree, nodes.b) == 0
-        @test ReuseDistance.distantnephew(tree, nodes.b) == nodes.f
-
         #####
         ##### Tree Rotations
         #####
@@ -141,6 +122,8 @@
         #         E   C
         #              \
         #               F
+
+        tree, nodes = setup_tree()
         ReuseDistance.rotateright!(tree, nodes.a)
         @test tree.root == nodes.b
         @test ReuseDistance.getparent(tree, nodes.b) == 0
